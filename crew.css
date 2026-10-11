@@ -1,0 +1,64 @@
+/* Crew-screen additions. Colors only through the variables in styles.css. */
+
+/* Touch targets: at least 48px tall on the crew screen */
+#crew .btn { min-height: 48px; padding: 10px 16px; font-size: 16px; }
+#crew .btn.link { padding: 10px 12px; }
+#crew input[type="text"] { min-height: 48px; width: 100%; font-size: 16px; padding: 10px 12px; }
+#crew .chip { min-height: 56px; }
+.cw-remember { display: flex; gap: 10px; align-items: center; justify-content: center; min-height: 48px; cursor: pointer; }
+.cw-remember input { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
+
+/* Status card */
+#crew .punch { min-height: 76px; }
+#crew .punch.cancel { min-height: 52px; }
+#crew .punch.working { opacity: 1; background: var(--out-bg); color: var(--ink); border-color: var(--line); cursor: progress; }
+.cw-second { width: 100%; border-width: 2px; border-color: var(--ink); font-family: var(--font-head); font-size: 18px; font-weight: 600; }
+#crew .cw-second { min-height: 54px; font-size: 18px; }
+.cw-q { font-family: var(--font-head); font-size: 20px; font-weight: 600; }
+.cw-fine { font-size: 14px; line-height: 1.4; }
+.cw-center { text-align: center; }
+.cw-warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 12px 14px; font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+#crew .totals { border-top: 1px solid var(--line); padding-top: 14px; gap: 32px; }
+#crew .totals .mono { font-size: 28px; }
+
+/* My hours */
+.cw-weeknav { display: grid; grid-template-columns: 56px minmax(0, 1fr) 56px; align-items: center; gap: 10px; margin-bottom: 10px; }
+#crew .cw-step { min-height: 52px; padding: 0; font-size: 22px; line-height: 1; }
+.cw-weeklabel { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
+.cw-weeklabel strong { font-family: var(--font-head); font-size: 20px; }
+.cw-thisweek { width: 100%; margin-bottom: 10px; }
+.cw-day { border-top: 1px solid var(--line); }
+.cw-day:first-child { border-top: 0; }
+.cw-dayhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; padding: 10px 16px 0;
+  font-family: var(--font-head); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.cw-daytotal .mono { color: var(--ink); font-size: 15px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.cw-shift { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px 14px; padding: 8px 16px 12px; }
+.cw-shift + .cw-shift { border-top: 1px dashed var(--line); padding-top: 10px; }
+.cw-shift .main { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.cw-shift .main .muted { font-size: 15px; }
+.cw-when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; }
+.cw-lunch { white-space: nowrap; }
+.cw-shift .hours { flex: none; font-size: 17px; font-weight: 500; white-space: nowrap; }
+.cw-note { font-size: 15px; font-style: italic; }
+.cw-weektotal { border-top: 2px solid var(--ink); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.cw-weekline { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-family: var(--font-head); font-size: 18px; font-weight: 600; }
+.cw-weekline .mono { font-size: 24px; font-weight: 600; white-space: nowrap; }
+.cw-otline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 15px; }
+.cw-otline .ot { margin-left: 0; padding: 3px 8px; font-size: 15px; }
+
+/* Full-screen confirmation after a punch */
+.cw-done { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px)); text-align: center; cursor: pointer;
+  background: var(--go); color: var(--go-ink); overflow: hidden; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+.cw-done.out { background: var(--ink); color: var(--bg); }
+.cw-check { width: 148px; height: 148px; border-radius: 50%; border: 8px solid currentColor; position: relative; margin-bottom: 14px; flex: none; }
+.cw-check::after { content: ""; position: absolute; left: 50%; top: 46%; width: 38px; height: 74px; border: solid currentColor; border-width: 0 14px 14px 0; transform: translate(-50%, -50%) rotate(45deg); }
+.cw-done-title { font-family: var(--font-head); font-size: clamp(44px, 14vw, 76px); font-weight: 600; line-height: 1.05; }
+.cw-done-time { font-size: clamp(34px, 10vw, 52px); font-weight: 500; line-height: 1.1; }
+.cw-done-job { font-size: clamp(22px, 6.5vw, 32px); font-weight: 600; line-height: 1.2; max-width: 100%; overflow-wrap: anywhere; }
+.cw-done-extra { font-size: clamp(20px, 5.5vw, 26px); font-weight: 500; }
+.cw-done-hint { position: absolute; left: 0; right: 0; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); font-size: 15px; opacity: 0.8; }
+@media (prefers-reduced-motion: no-preference) {
+  .cw-check { animation: cw-pop 0.32s cubic-bezier(0.2, 1.4, 0.4, 1); }
+}
+@keyframes cw-pop { from { transform: scale(0.6); } }
