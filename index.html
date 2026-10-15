@@ -9,9 +9,9 @@
 <meta name="robots" content="noindex">
 <title>Bombara Masonry Timeclock</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=2">
-<link rel="stylesheet" href="crew.css?v=2">
-<link rel="stylesheet" href="admin.css?v=2">
+<link rel="stylesheet" href="styles.css?v=3">
+<link rel="stylesheet" href="crew.css?v=3">
+<link rel="stylesheet" href="admin.css?v=3">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -29,6 +29,7 @@
   </header>
 
   <!-- Crew clock -->
+  <div class="c-alert" id="crew-alert" hidden></div>
   <section id="crew" class="stack"></section>
 
   <!-- Manager sign-in or first-time setup -->
@@ -60,6 +61,7 @@
     <div>
       <div class="tabs" role="tablist" aria-label="Records">
         <button class="tab" role="tab" id="tab-timesheet" data-tab="timesheet" aria-controls="panel-timesheet">Timesheet</button>
+        <button class="tab" role="tab" id="tab-pay" data-tab="pay" aria-controls="panel-pay">Pay</button>
         <button class="tab" role="tab" id="tab-punches" data-tab="punches" aria-controls="panel-punches">Punches</button>
         <button class="tab" role="tab" id="tab-jobs" data-tab="jobs" aria-controls="panel-jobs">Jobs</button>
         <button class="tab" role="tab" id="tab-people" data-tab="people" aria-controls="panel-people">Crew</button>
@@ -89,6 +91,14 @@
           <button class="btn small" id="export">Export week as CSV</button>
         </div>
         <div class="m-notes muted" id="sheet-note"></div>
+      </div>
+
+      <div class="panel" id="panel-pay" role="tabpanel" aria-labelledby="tab-pay" hidden>
+        <div class="card" id="pay-sum"></div>
+        <div class="list" id="pay-people"></div>
+        <h3 class="m-h3">Past payouts</h3>
+        <div class="list" id="payruns"></div>
+        <p class="muted m-hint">Earned is hours times the hourly rate at straight time; it does not add the overtime the timesheet estimates. Anyone still on the clock is left out until they clock out. Closing out files the open hours and advances under a payout and starts the totals at zero — punches and advances stay in the records, and the latest payout can be reopened.</p>
       </div>
 
       <div class="panel" id="panel-punches" role="tabpanel" aria-labelledby="tab-punches" hidden>
@@ -168,9 +178,9 @@
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script src="shared.js?v=2"></script>
-<script src="crew.js?v=2"></script>
-<script src="admin.js?v=2"></script>
-<script src="shell.js?v=2"></script>
+<script src="shared.js?v=3"></script>
+<script src="crew.js?v=3"></script>
+<script src="admin.js?v=3"></script>
+<script src="shell.js?v=3"></script>
 </body>
 </html>

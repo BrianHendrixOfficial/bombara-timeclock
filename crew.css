@@ -62,3 +62,11 @@
   .cw-check { animation: cw-pop 0.32s cubic-bezier(0.2, 1.4, 0.4, 1); }
 }
 @keyframes cw-pop { from { transform: scale(0.6); } }
+
+/* Reminder banner: at a job and not clocked in, due on a job, or still on the clock after leaving */
+.c-alert { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-ink); border-radius: 8px; padding: 14px 16px; margin-bottom: 18px; }
+.c-alert-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 220px; }
+.c-alert-main strong { font-size: 17px; overflow-wrap: anywhere; }
+.c-alert-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.c-alert .btn { border-color: var(--warn-ink); }

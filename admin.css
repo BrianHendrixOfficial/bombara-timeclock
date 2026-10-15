@@ -64,3 +64,26 @@
 /* Settings */
 #settings-form :is(select, input) { width: 100%; max-width: 360px; }
 #set-current { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+
+/* Pay: open period, advances, payouts */
+.m-payhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; width: 100%; }
+.m-payhead .name { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.m-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px 16px; width: 100%; }
+.m-fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-fig-v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 500; overflow-wrap: anywhere; }
+.m-fig.big .m-fig-v { font-size: clamp(19px, 5vw, 23px); font-weight: 600; }
+.m-fig-v.owed { color: var(--go); }
+.m-fig-v.over { color: var(--danger); }
+.m-paycard { flex-direction: column; align-items: stretch; gap: 12px; }
+.m-advs { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
+.m-adv { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; font-size: 15px; }
+.m-adv-r { display: flex; align-items: center; gap: 10px; }
+.m-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.m-confirm { display: flex; flex-direction: column; gap: 10px; background: var(--out-bg); border-radius: 6px; padding: 12px; }
+.m-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 14px; }
+.m-money { display: flex; align-items: center; gap: 4px; }
+#pay-sum { gap: 14px; }
+#pay-people .item { display: flex; }
+.m-remind { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; }
+.m-days { display: flex; flex-wrap: wrap; gap: 4px; }
+.m-days .btn { min-width: 38px; padding: 5px 8px; text-align: center; }

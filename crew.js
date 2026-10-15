@@ -24,6 +24,7 @@ function refreshState() {
 }
 function forgetMe() {
   C.me = null; C.data = null; C.pending = null; C.picking = null; C.pin = "";
+  C.extra = null; stopWatch();
   C.week = 0; C.hist = null; C.note = ""; C.failMsg = ""; C.loadFailed = false;
   store("local", "tc_me", null);
 }
@@ -47,7 +48,7 @@ function loadMe(quiet) {
       if (res.error === "bad" || res.error === "unknown") { kickedOut(quiet); return; }
       if (!quiet) toast(ERR[res.error] || "Could not load your hours.");
       if (!C.data) C.loadFailed = true;
-    } else { takeCfg(res); C.data = res; C.loadFailed = false; }
+    } else { takeCfg(res); C.data = res; C.loadFailed = false; if (!C.extra) loadExtra(); }
     renderCrew();
     if (C.data && C.week !== 0) return loadWeek(true);
   }, function () {
@@ -88,6 +89,7 @@ function tryPin() {
     C.busy = false; C.pin = "";
     if (res.ok === false) { toast(ERR[res.error] || "That did not work."); renderCrew(); var d = document.querySelector(".dots"); if (d) d.classList.add("shake"); return; }
     C.me = { id: p.id, pin: pin }; takeCfg(res); C.data = res; C.picking = null;
+    C.extra = null; loadExtra();
     C.week = 0; C.hist = null; C.note = ""; C.failMsg = ""; C.loadFailed = false;
     if (C.remember) store("local", "tc_me", JSON.stringify(C.me));
     renderCrew();
@@ -304,3 +306,148 @@ function drawCrew(box, now) {
   box.append(h("div", null, h("div", { class: "sec-head" }, h("h2", null, "Who's clocking in?")),
     h("div", { class: "names" }, C.people.map(function (p) { return h("button", { class: "namebtn", onclick: function () { C.picking = p; C.pin = ""; renderCrew(); } }, p.name); }))));
 }
+
+
+/* ================= Reminders to clock in =================
+   Two things set this off while the timeclock is open on the phone:
+   pulling up to a job whose location the manager saved, and the time
+   you are due on a job passing with no clock-in.
+   A web page cannot watch where the phone is when it is closed. For a
+   reminder that reaches you with the app shut, set up an arrival
+   automation on the phone itself (iPhone: Shortcuts > Automation > Arrive). */
+C.extra = null; C.spotNow = null; C.watchId = null; C.fired = {}; C.hushed = {};
+
+function loadExtra() {
+  if (!C.me) return;
+  var me = C.me;
+  rpc("tc_me_extra", { p_person: me.id, p_pin: me.pin }).then(function (res) {
+    if (me !== C.me || !res || res.ok === false) return;
+    C.extra = res;
+    startWatch();
+    renderAlert();
+  }, function () {});
+}
+function startWatch() {
+  if (C.watchId != null || !navigator.geolocation) return;
+  if (!C.extra || !C.extra.jobs || !C.extra.jobs.length) return;
+  try {
+    C.watchId = navigator.geolocation.watchPosition(function (pos) {
+      C.spotNow = { lat: pos.coords.latitude, lng: pos.coords.longitude, at: Date.now() };
+      renderAlert();
+    }, function () {}, { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 });
+  } catch (e) {}
+}
+function stopWatch() {
+  if (C.watchId == null) return;
+  try { navigator.geolocation.clearWatch(C.watchId); } catch (e) {}
+  C.watchId = null; C.spotNow = null;
+}
+/* The closest saved job this phone is standing inside, or null. */
+function nearJob() {
+  if (!C.spotNow || !C.extra || !C.extra.jobs) return null;
+  var best = null;
+  C.extra.jobs.forEach(function (j) {
+    var d = distanceM(C.spotNow.lat, C.spotNow.lng, j.lat, j.lng);
+    if (d <= (Number(j.radius) || 300) && (!best || d < best.dist)) best = { job: j, dist: d };
+  });
+  return best;
+}
+function todayKey() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+function dueNow() {
+  var r = C.extra && C.extra.remind;
+  if (!r || !r.on || !r.at) return false;
+  var days = r.days && r.days.length ? r.days : [1, 2, 3, 4, 5], d = new Date();
+  if (days.indexOf(d.getDay()) < 0) return false;
+  var hm = String(r.at).split(":");
+  var due = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Number(hm[0]) || 0, Number(hm[1]) || 0).getTime();
+  var now = Date.now();
+  return now >= due && now <= due + 6 * HOUR;
+}
+function alertState() {
+  if (mode !== "crew" || !C.me || !C.data) return null;
+  var open = myOpen(), near = nearJob();
+  if (!open && near) return { key: "in:" + near.job.id + ":" + todayKey(), kind: "in", job: near.job,
+    title: "You are at " + near.job.name, body: "You are not on the clock." };
+  if (!open && dueNow()) return { key: "due:" + todayKey(), kind: "due",
+    title: "You are due on a job", body: "You have not clocked in yet today." };
+  if (open && C.extra && C.extra.jobs && C.extra.jobs.length && C.spotNow && !near && Date.now() - open.in > 10 * MIN)
+    return { key: "out:" + open.id, kind: "out",
+      title: "Still on the clock", body: "You have left " + (open.job || "the job") + " and you are still clocked in." };
+  return null;
+}
+/* A sound and a buzz the first time each reminder comes up. */
+var actx = null;
+function primeSound() {
+  try {
+    var A = window.AudioContext || window.webkitAudioContext;
+    if (!actx && A) actx = new A();
+    if (actx && actx.state === "suspended") actx.resume();
+  } catch (e) {}
+}
+function chime() {
+  try { if (navigator.vibrate) navigator.vibrate([130, 90, 130]); } catch (e) {}
+  try {
+    if (!actx) return;
+    var t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(880, t); o.frequency.setValueAtTime(660, t + 0.18);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.65);
+  } catch (e) {}
+}
+function notify(a) {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    if (!document.hidden) return; /* the banner is already on screen */
+    new Notification(a.title, { body: a.body, tag: a.key, icon: "icon-192.png" });
+  } catch (e) {}
+}
+function askNotify() {
+  try {
+    if (!("Notification" in window)) { toast("This phone cannot show notifications from a web page."); return; }
+    Notification.requestPermission().then(function (p) {
+      toast(p === "granted" ? "Reminders will show even when the timeclock is in the background." : "Notifications stayed off. The banner still shows while the timeclock is open.");
+      renderAlert();
+    });
+  } catch (e) {}
+}
+function renderAlert() {
+  var box = $("crew-alert");
+  if (!box) return;
+  var a = alertState();
+  box.replaceChildren();
+  if (!a || C.hushed[a.key]) { box.hidden = true; return; }
+  box.hidden = false;
+  if (!C.fired[a.key]) { C.fired[a.key] = 1; chime(); notify(a); }
+
+  var acts = h("div", { class: "c-alert-acts" });
+  if (a.kind === "in") {
+    acts.append(h("button", { class: "btn primary", onclick: function () {
+      C.hushed[a.key] = 1; clockIn(a.job);
+    } }, "Clock in on " + a.job.name));
+  } else if (a.kind === "due") {
+    acts.append(h("button", { class: "btn primary", onclick: function () {
+      C.hushed[a.key] = 1; renderAlert();
+      var jobs = (C.data && C.data.jobs) || [];
+      if (jobs.length === 1) clockIn(jobs[0]); else { C.pending = "in"; renderCrew(); }
+    } }, "Clock in"));
+  } else {
+    acts.append(h("button", { class: "btn primary", onclick: function () {
+      C.hushed[a.key] = 1; C.pending = "out"; renderCrew();
+    } }, "Clock out"));
+  }
+  if ("Notification" in window && Notification.permission === "default") {
+    acts.append(h("button", { class: "btn", onclick: askNotify }, "Alert me in the background"));
+  }
+  acts.append(h("button", { class: "btn", onclick: function () { C.hushed[a.key] = 1; renderAlert(); } }, "Not now"));
+
+  box.append(h("div", { class: "c-alert-main" }, h("strong", null, a.title), h("span", null, a.body)), acts);
+}
+
+/* Keep the banner honest as the clock and the phone's position move. */
+document.addEventListener("click", primeSound);
+setInterval(renderAlert, 60000);
+var _renderCrew = renderCrew;
+renderCrew = function () { _renderCrew.apply(null, arguments); renderAlert(); };

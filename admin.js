@@ -90,6 +90,8 @@ function slot(list, ms, key) {
 function lock() {
   S.authed = false; S.pass = null; S.loaded = false; S.since = Infinity;
   S.editing = S.pinEdit = S.confirmDelete = S.confirmRemove = S.rateEdit = S.locBusy = S.locMsg = null; S.setDirty = false;
+  S.advFor = S.confirmClose = S.confirmUndo = S.remindEdit = null; S.closing = false;
+  S.pay = { open: [], openShifts: [], advances: [], runs: [], remind: [], loaded: false };
   store("session", "tc_pass", null); show();
 }
 function sinceMs() { return Math.min(visibleRange().start, Date.now() - 35 * DAY); }
@@ -107,7 +109,7 @@ function reloadAdmin(quiet) {
     CFG.round = Number(st.round) || 0; CFG.periodDays = Number(st.periodDays) === 14 ? 14 : 7; CFG.periodAnchor = st.periodAnchor || null;
     if (sinceMs() < since - MIN) return reloadAdmin(quiet); /* the settings moved the visible pay period further back */
     S.people = res.people || []; S.jobs = res.jobs || []; S.punches = res.punches || []; S.loaded = true; S.since = since;
-    if (!S.authed) { S.authed = true; store("session", "tc_pass", S.pass); show(); }
+    if (!S.authed) { S.authed = true; store("session", "tc_pass", S.pass); show(); loadPay(true); }
     renderAdmin();
     return true;
   }, function () { if (!quiet) toast(ERR.net); return false; });
@@ -423,8 +425,11 @@ function renderPeople() {
         h("button", { class: "btn small", type: "button", onclick: function () { S.rateEdit = null; renderPeople(); } }, "Cancel"),
         h("span", { class: "muted m-sub" }, "Leave blank for no rate."));
       setTimeout(function () { inp.focus(); inp.select(); }, 0);
+    } else if (S.remindEdit === p.id) {
+      actions = remindForm(p);
     } else actions = [
       h("button", { class: "btn small", onclick: function () { S.rateEdit = p.id; S.pinEdit = S.confirmRemove = null; renderPeople(); } }, "Rate"),
+      h("button", { class: "btn small", onclick: function () { S.remindEdit = p.id; S.rateEdit = S.pinEdit = S.confirmRemove = null; renderPeople(); } }, remindLabel(p.id)),
       h("button", { class: "btn small", onclick: function () { S.pinEdit = p.id; S.rateEdit = S.confirmRemove = null; renderPeople(); } }, "New PIN"),
       h("button", { class: "btn small", onclick: function () { S.confirmRemove = key; S.pinEdit = S.rateEdit = null; renderPeople(); } }, k.removeLabel)];
     box.append(h("div", { class: "item", "data-id": p.id },
@@ -503,7 +508,7 @@ function renderSettings() {
   settingsPreview();
 }
 
-function renderAdmin() { renderBoard(); renderSheet(); renderLog(); renderPeople(); renderJobs(); renderSettings(); }
+function renderAdmin() { renderBoard(); renderSheet(); renderLog(); renderPeople(); renderJobs(); renderSettings(); renderPay(); }
 function setTab(name) {
   if (!$("panel-" + name) || !$("tab-" + name)) name = "timesheet";
   if (S.tab === "settings" && name !== "settings" && S.setDirty) { S.setDirty = false; renderSettings(); }
@@ -593,3 +598,265 @@ $("settings-form").addEventListener("submit", function (ev) {
   adminDo("tc_admin_settings", { p_round: round, p_period_days: days, p_period_anchor: anchor }, "Settings saved").then(function (ok) { if (!ok) S.setDirty = true; });
 });
 $("more").addEventListener("click", function () { S.shown += 40; renderLog(); });
+
+
+/* ================= Pay: advances and payouts =================
+   The open period is whatever has not been closed out yet. The server works
+   it out (tc_admin_pay -> open) so the figures on screen are the figures the
+   close-out pays. Anyone still on the clock is left out until they clock out. */
+S.pay = { open: [], openShifts: [], advances: [], runs: [], remind: [], loaded: false };
+S.advFor = null; S.confirmClose = null; S.confirmUndo = null; S.closing = false; S.remindEdit = null;
+
+function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+function hrs2(n) { return num(n).toFixed(2); }
+function fig(label, value, big, tone) {
+  return h("div", { class: "m-fig" + (big ? " big" : "") },
+    h("span", { class: "label" }, label),
+    h("span", { class: "m-fig-v" + (tone ? " " + tone : "") }, value));
+}
+function downloadCsv(name, lines) {
+  var url = URL.createObjectURL(new Blob([lines.join("\r\n") + "\r\n"], { type: "text/csv" }));
+  var link = h("a", { href: url, download: name });
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+}
+function csvCell(s) { s = String(s == null ? "" : s); if (/^[=+\-@\t]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; }
+
+function loadPay(quiet) {
+  var pass = S.pass;
+  return rpc("tc_admin_pay", { p_pass: pass, p_since: iso(sinceMs()) }).then(function (res) {
+    if (pass !== S.pass) return;
+    if (!res || res.ok === false) {
+      if (!quiet) toast((res && ERR[res.error]) || "Could not load pay. Run the database upgrade, then reload.");
+      return;
+    }
+    S.pay.open = res.open || []; S.pay.openShifts = res.openShifts || [];
+    S.pay.advances = res.advances || []; S.pay.runs = res.runs || []; S.pay.remind = res.remind || [];
+    S.pay.loaded = true;
+    renderPay(); renderPeople();
+  }, function () { if (!quiet) toast(ERR.net); });
+}
+function payDo(fn, args, okMsg) {
+  args.p_pass = S.pass;
+  return call(fn, args, "Wrong passcode.").then(function (res) {
+    if (res.fail) { if (res.fail === "bad") lock(); return false; }
+    if (okMsg) toast(okMsg);
+    return reloadAdmin(true).then(function () { return loadPay(true); }).then(function () { return true; });
+  });
+}
+function payLine(personId) {
+  for (var i = 0; i < S.pay.open.length; i++) if (S.pay.open[i].personId === personId) return S.pay.open[i];
+  return null;
+}
+function openAdvances(personId) {
+  return S.pay.advances.filter(function (a) { return a.personId === personId && !a.runId; });
+}
+function stillIn(personId) { return S.pay.openShifts.indexOf(personId) >= 0; }
+function remindFor(personId) {
+  for (var i = 0; i < S.pay.remind.length; i++) if (S.pay.remind[i].id === personId) return S.pay.remind[i];
+  return null;
+}
+
+function renderPay() {
+  if (!$("panel-pay")) return;
+  renderPaySum(); renderPayPeople(); renderPayRuns();
+}
+
+function renderPaySum() {
+  var box = $("pay-sum"), lines = S.pay.open, hh = 0, gg = 0, aa = 0, noRate = 0;
+  box.replaceChildren();
+  if (!S.pay.loaded) { box.append(h("div", { class: "empty" }, "Loading pay…")); return; }
+  lines.forEach(function (l) {
+    hh += num(l.hours); gg += num(l.gross); aa += num(l.advances);
+    if (l.rate == null && num(l.hours) > 0) noRate++;
+  });
+  var last = S.pay.runs.length ? S.pay.runs[0] : null;
+  box.append(h("div", { class: "m-payhead" },
+    h("div", null,
+      h("span", { class: "label" }, "Open period"),
+      h("h3", { class: "m-h3" }, last ? "Since the payout on " + fmtDay(last.closedAt) : "Everything so far")),
+    h("span", { class: "muted" }, lines.length ? lines.length + (lines.length === 1 ? " person to pay" : " people to pay") : "Nothing owed yet")));
+  box.append(h("div", { class: "m-figs" },
+    fig("Hours", hrs2(hh)),
+    fig("Earned", money(gg)),
+    fig("Paid ahead", aa ? "− " + money(aa) : money(0)),
+    fig("Left to pay", money(gg - aa), true, gg - aa < 0 ? "over" : "owed")));
+  if (noRate) box.append(h("p", { class: "muted m-help" },
+    noRate + (noRate === 1 ? " person has" : " people have") + " hours but no hourly rate, so their earnings are not in these totals. Set a rate under Crew."));
+  if (S.pay.openShifts.length) box.append(h("p", { class: "muted m-help" },
+    S.pay.openShifts.length + (S.pay.openShifts.length === 1 ? " person is" : " people are") + " still on the clock. Those hours stay out of the totals until they clock out."));
+
+  if (S.confirmClose === "all") {
+    box.append(h("div", { class: "m-confirm" },
+      h("div", { class: "m-line" }, h("span", null, "Hours filed"), h("span", { class: "mono" }, hrs2(hh))),
+      h("div", { class: "m-line" }, h("span", null, "Advances settled"), h("span", { class: "mono" }, money(aa))),
+      h("div", { class: "m-line" }, h("strong", null, "Paying out"), h("strong", { class: "mono" }, money(gg - aa))),
+      h("p", { class: "muted m-help" }, "These totals go to zero and this lands under Past payouts. You can reopen it afterwards."),
+      h("div", { class: "m-acts" },
+        h("button", { class: "btn primary", disabled: S.closing, onclick: function () {
+          S.closing = true; renderPay();
+          payDo("tc_admin_close", { p_person: null }, "Payroll closed out. The open period starts at zero.")
+            .then(function () { S.closing = false; S.confirmClose = null; renderPay(); });
+        } }, S.closing ? "Closing out…" : "Close out payroll"),
+        h("button", { class: "btn", disabled: S.closing, onclick: function () { S.confirmClose = null; renderPay(); } }, "Cancel"))));
+  } else {
+    box.append(h("div", { class: "m-acts" },
+      h("button", { class: "btn primary", disabled: S.closing || !lines.length, onclick: function () { S.confirmClose = "all"; S.advFor = null; renderPay(); } }, "Close out payroll"),
+      h("button", { class: "btn", disabled: !lines.length, onclick: exportOpen }, "Export this period")));
+  }
+}
+function exportOpen() {
+  var lines = ["Name,Hours,Rate,Earned,Paid ahead,Left to pay"];
+  S.pay.open.forEach(function (l) {
+    lines.push([csvCell(l.name), hrs2(l.hours), l.rate == null ? "" : num(l.rate).toFixed(2),
+      num(l.gross).toFixed(2), num(l.advances).toFixed(2), num(l.net).toFixed(2)].join(","));
+  });
+  downloadCsv("bombara-open-payroll-" + ymd(Date.now()) + ".csv", lines);
+}
+
+function renderPayPeople() {
+  var box = $("pay-people"), all = sorted("people").filter(function (p) { return p.active !== false; });
+  box.replaceChildren();
+  if (!S.pay.loaded) { box.append(h("div", { class: "empty" }, "Loading…")); return; }
+  if (!all.length) { box.append(h("div", { class: "empty" }, "Add the crew first, then set what each person is paid an hour.")); return; }
+  all.forEach(function (p) { box.append(payCard(p)); });
+}
+function payCard(p) {
+  var l = payLine(p.id), rate = rateOf(p.id);
+  var hours = l ? num(l.hours) : 0, gross = l ? num(l.gross) : 0, adv = l ? num(l.advances) : 0;
+  var net = gross - adv, items = openAdvances(p.id), anything = hours > 0 || adv > 0;
+
+  var figs = [fig("Hours", hrs2(hours)),
+    rate == null ? fig("Earned", "No rate") : fig("Earned", money(gross)),
+    fig("Paid ahead", adv ? "− " + money(adv) : money(0))];
+  figs.push(rate == null
+    ? fig("Left to pay", "—", true)
+    : fig(net < 0 ? "Owes back" : "Left to pay", money(Math.abs(net)), true, net < 0 ? "over" : "owed"));
+
+  var advList = items.length ? h("div", { class: "m-advs" },
+    h("span", { class: "label" }, "Advances this period"),
+    items.map(function (a) {
+      return h("div", { class: "m-adv" },
+        h("span", null, h("span", { class: "mono" }, money(num(a.amount))), a.note ? " · " + a.note : ""),
+        h("span", { class: "m-adv-r" },
+          h("span", { class: "muted" }, a.paidOn),
+          h("button", { class: "btn small danger", onclick: function () {
+            payDo("tc_admin_advance", { p_id: a.id, p_person: null, p_amount: null, p_date: null, p_note: null, p_remove: true }, "Advance removed");
+          } }, "Remove")));
+    })) : null;
+
+  var acts;
+  if (S.advFor === p.id) acts = advForm(p);
+  else if (S.confirmClose === p.id) {
+    acts = h("div", { class: "m-confirm" },
+      h("span", null, "Close out " + p.name + " for " + hrs2(hours) + " hours" + (adv ? " less " + money(adv) + " already paid" : "") + "?"),
+      h("div", { class: "m-acts" },
+        h("button", { class: "btn primary", disabled: S.closing, onclick: function () {
+          S.closing = true; renderPay();
+          payDo("tc_admin_close", { p_person: p.id }, p.name + " closed out.")
+            .then(function () { S.closing = false; S.confirmClose = null; renderPay(); });
+        } }, "Close out " + p.name),
+        h("button", { class: "btn", disabled: S.closing, onclick: function () { S.confirmClose = null; renderPay(); } }, "Cancel")));
+  } else {
+    acts = h("div", { class: "m-acts" },
+      h("button", { class: "btn", onclick: function () { S.advFor = p.id; S.confirmClose = null; renderPay(); } }, "Pay an advance"),
+      anything && h("button", { class: "btn", disabled: S.closing, onclick: function () { S.confirmClose = p.id; S.advFor = null; renderPay(); } },
+        "Close out " + String(p.name).split(" ")[0]));
+  }
+
+  return h("div", { class: "item m-paycard" },
+    h("div", { class: "m-payhead" },
+      h("span", { class: "name" }, p.name),
+      h("span", { class: "muted" },
+        rate == null ? "No hourly rate set" : money(rate) + " an hour",
+        stillIn(p.id) ? " · on the clock now" : "")),
+    h("div", { class: "m-figs" }, figs),
+    advList, acts);
+}
+function advForm(p) {
+  var amt = h("input", { type: "number", inputmode: "decimal", min: "0.01", max: "100000", step: "0.01", placeholder: "0.00", autocomplete: "off", "aria-label": "Amount paid to " + p.name, style: "width:120px" });
+  var when = h("input", { type: "date", value: ymd(Date.now()), "aria-label": "Date paid" });
+  var note = h("input", { type: "text", maxlength: "60", placeholder: "Cash, check number", autocomplete: "off", "aria-label": "Note", style: "flex:1 1 150px" });
+  var form = h("form", { class: "form", novalidate: true, onsubmit: function (ev) {
+    ev.preventDefault();
+    var v = Math.round(Number(amt.value) * 100) / 100;
+    if (!isFinite(v) || v <= 0 || v > 100000) { toast("Enter how much was paid out, from 0.01 to 100,000."); return; }
+    if (!when.value) { toast("Pick the date it was paid."); return; }
+    payDo("tc_admin_advance", { p_id: null, p_person: p.id, p_amount: v, p_date: when.value, p_note: note.value.trim(), p_remove: false },
+      money(v) + " paid ahead to " + p.name).then(function (ok) { if (ok) { S.advFor = null; renderPay(); } });
+  } },
+    h("label", { class: "field" }, h("span", { class: "label" }, "Amount"), h("span", { class: "m-money" }, h("span", { class: "m-unit" }, "$"), amt)),
+    h("label", { class: "field" }, h("span", { class: "label" }, "Date paid"), when),
+    h("label", { class: "field", style: "flex:1 1 150px" }, h("span", { class: "label" }, "Note"), note),
+    h("button", { class: "btn primary", type: "submit" }, "Add advance"),
+    h("button", { class: "btn", type: "button", onclick: function () { S.advFor = null; renderPay(); } }, "Cancel"));
+  setTimeout(function () { amt.focus(); }, 0);
+  return form;
+}
+
+function renderPayRuns() {
+  var box = $("payruns"), runs = S.pay.runs;
+  box.replaceChildren();
+  if (!S.pay.loaded) { box.append(h("div", { class: "empty" }, "Loading…")); return; }
+  if (!runs.length) { box.append(h("div", { class: "empty" }, "No payouts yet. Closing out the period files one here, with what each person was paid.")); return; }
+  runs.forEach(function (r, i) {
+    var lines = r.lines || [];
+    var who = r.scope === "person" && lines.length === 1 ? lines[0].name : lines.length + " people";
+    var acts = [h("button", { class: "btn small", onclick: function () { exportRun(r); } }, "CSV")];
+    if (i === 0) {
+      if (S.confirmUndo === r.id) acts = [h("span", { class: "muted" }, "Reopen this payout?"),
+        h("button", { class: "btn small danger", disabled: S.closing, onclick: function () {
+          S.closing = true; renderPay();
+          payDo("tc_admin_undo", { p_run: r.id }, "Payout reopened. Those hours and advances are back in the open period.")
+            .then(function () { S.closing = false; S.confirmUndo = null; renderPay(); });
+        } }, "Reopen"),
+        h("button", { class: "btn small", onclick: function () { S.confirmUndo = null; renderPay(); } }, "Keep")];
+      else acts.push(h("button", { class: "btn small", disabled: S.closing, onclick: function () { S.confirmUndo = r.id; renderPay(); } }, "Undo"));
+    }
+    box.append(h("div", { class: "item" },
+      h("div", { class: "main" },
+        h("strong", null, fmtDay(r.closedAt) + " · " + who),
+        h("span", { class: "muted" }, hrs2(r.hours) + " hrs · ",
+          h("span", { class: "mono" }, money(num(r.net))), " paid out",
+          num(r.advances) ? " after " + money(num(r.advances)) + " in advances" : "")),
+      h("div", { class: "actions" }, acts)));
+  });
+}
+function exportRun(r) {
+  var lines = ["Name,Hours,Rate,Earned,Paid ahead,Paid out"];
+  (r.lines || []).forEach(function (l) {
+    lines.push([csvCell(l.name), hrs2(l.hours), l.rate == null ? "" : num(l.rate).toFixed(2),
+      num(l.gross).toFixed(2), num(l.advances).toFixed(2), num(l.net).toFixed(2)].join(","));
+  });
+  downloadCsv("bombara-payout-" + ymd(r.closedAt) + ".csv", lines);
+}
+
+
+/* ---- who is due on a job, and when ---- */
+var DAYNAMES = ["Su", "M", "Tu", "W", "Th", "F", "Sa"];
+function remindLabel(personId) {
+  var r = remindFor(personId);
+  return r && r.on && r.at ? "Due " + r.at : "Reminder";
+}
+function remindForm(p) {
+  var r = remindFor(p.id) || { on: false, at: "07:00", days: [1, 2, 3, 4, 5] };
+  var on = !!r.on, days = (r.days && r.days.length ? r.days : [1, 2, 3, 4, 5]).slice();
+  var time = h("input", { type: "time", value: r.at || "07:00", "aria-label": "Time " + p.name + " is due on a job" });
+  function send(args, msg) { args.p_person = p.id; payDo("tc_admin_remind", args, msg); }
+  time.addEventListener("change", function () {
+    send({ p_on: null, p_at: time.value || "07:00", p_days: null }, "Due time saved for " + p.name);
+  });
+  return h("div", { class: "m-remind" },
+    h("button", { class: "btn small", type: "button", "aria-pressed": on ? "true" : "false", onclick: function () {
+      send({ p_on: !on, p_at: time.value || "07:00", p_days: days }, on ? "Reminder off for " + p.name : "Reminder on for " + p.name);
+    } }, on ? "Reminder on" : "Reminder off"),
+    on && h("label", { class: "field" }, h("span", { class: "label" }, "Due at"), time),
+    on && h("div", { class: "m-days" }, DAYNAMES.map(function (lbl, i) {
+      return h("button", { class: "btn small", type: "button", "aria-pressed": days.indexOf(i) >= 0 ? "true" : "false", onclick: function () {
+        var nd = days.indexOf(i) >= 0 ? days.filter(function (d) { return d !== i; }) : days.concat(i).sort(function (a, b) { return a - b; });
+        if (!nd.length) { toast("Pick at least one day."); return; }
+        send({ p_on: null, p_at: null, p_days: nd }, null);
+      } }, lbl);
+    })),
+    h("button", { class: "btn small", type: "button", onclick: function () { S.remindEdit = null; renderPeople(); } }, "Done"));
+}

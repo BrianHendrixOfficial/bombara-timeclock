@@ -3,13 +3,13 @@ var API = "https://bllxuuinyhbaxnfodbqq.supabase.co/rest/v1/rpc/";
 var KEY = "sb_publishable_Oj1w5MiNPP5_7K1RQg5fVQ_paWmKBZ5";
 var HOUR = 3600000, MIN = 60000, DAY = 86400000;
 var LUNCHES = [0, 15, 30, 45, 60, 90];
-var TABS = ["timesheet", "punches", "jobs", "people"];
+var TABS = ["timesheet", "pay", "punches", "jobs", "people"];
 var ERR = {
   bad: "Wrong PIN. Try again.", locked: "Too many wrong tries. Wait a minute, then try again.",
   unknown: "That person is not on the crew any more.", no_job: "That job is closed. Pick another.",
   already_in: "Already on the clock.", not_in: "Not on the clock.", lunch_too_long: "That lunch is longer than the shift.",
   short: "Use at least 6 characters.", exists: "A manager passcode is already set.", bad_pin: "A PIN is exactly 4 digits.",
-  missing: "Something is missing. Check the form.", bad_times: "Clock-out must be after clock-in.",
+  missing: "Something is missing. Check the form.", nothing: "There is nothing to close out yet.", bad_times: "Clock-out must be after clock-in.",
   bad_value: "One of those values is out of range. Check it and try again.", setup: "Set the manager passcode first.", net: "No connection. Check your signal and try again."
 };
 var KIND = {
